@@ -254,7 +254,13 @@ async function addToLog(){
       carbCalories:currentFood.carbCalories||0,
       aiAnalysis:currentFood.aiAnalysis
     });
-    showToast(`✓ ${currentFood.foodName} added!`);
+    let toastMsg = `✓ ${currentFood.foodName} added!`;
+    if (currentFood.waterContentMl && currentFood.waterContentMl > 5) {
+      toastMsg += ` 💧 +${Math.round(currentFood.waterContentMl)}ml water`;
+      // Refresh water display if on dashboard
+      setTimeout(() => loadWater(), 500);
+    }
+    showToast(toastMsg);
     currentFood=null;
     document.getElementById('food-search-result').classList.add('hidden');
     document.getElementById('food-name-input').value='';
@@ -500,6 +506,27 @@ async function addWater(ml) {
   } catch (e) { showToast('Failed to log water', 'error'); }
 }
 
+async function addCustomWater() {
+  const input = document.getElementById('water-custom-ml');
+  const ml = parseFloat(input.value);
+  if (!ml || ml <= 0 || ml > 2000) { showToast('Enter valid amount (1-2000ml)', 'error'); return; }
+  input.value = '';
+  try {
+    const d = await api('POST', '/water/add', { ml });
+    waterState = d;
+    renderWater(d, true);
+    showToast(`💧 ${Math.round(ml)}ml added!`);
+  } catch (e) { showToast('Failed to log water', 'error'); }
+}
+
+// Enter key on custom water input
+document.addEventListener('DOMContentLoaded', () => {
+  setTimeout(() => {
+    const wi = document.getElementById('water-custom-ml');
+    if (wi) wi.addEventListener('keydown', e => { if (e.key === 'Enter') addCustomWater(); });
+  }, 500);
+});
+
 function renderWater(d, animate = false) {
   const pct = Math.min(d.percentage || 0, 100);
   const consumed = Math.round(d.consumedMl || 0);
@@ -534,6 +561,15 @@ function renderWater(d, animate = false) {
       </div>`;
     }
     row.innerHTML = html;
+  }
+
+  // From food indicator
+  const fromFood = Math.round(d.fromFoodMl || 0);
+  const fromFoodEl = document.getElementById('water-from-food');
+  const fromFoodMlEl = document.getElementById('water-from-food-ml');
+  if (fromFoodEl && fromFood > 0) {
+    fromFoodEl.style.display = 'flex';
+    if (fromFoodMlEl) fromFoodMlEl.textContent = fromFood;
   }
 
   // Tip text

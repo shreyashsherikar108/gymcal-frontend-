@@ -590,3 +590,54 @@ select{cursor:pointer;}
   .water-glass { width: 24px; height: 30px; }
   .weight-change-banner { flex-direction: column; align-items: flex-start; }
 }
+
+/* Custom water input */
+.water-custom-row {
+  display: flex; align-items: center; gap: 0.6rem;
+  margin-top: 0.8rem; flex-wrap: wrap;
+}
+.water-custom-label { font-size: 0.75rem; color: var(--text3); white-space: nowrap; }
+.water-custom-input-wrap {
+  position: relative; flex: 1; min-width: 100px; max-width: 140px;
+}
+.water-custom-input-wrap input {
+  padding: 0.4rem 2rem 0.4rem 0.7rem;
+  font-size: 0.85rem; height: 34px;
+  background: var(--bg3);
+  border: 1px solid rgba(75,245,255,0.2);
+  border-radius: var(--radius-xs);
+  color: var(--text);
+}
+.water-custom-input-wrap input:focus {
+  border-color: rgba(75,245,255,0.5);
+  box-shadow: 0 0 0 3px rgba(75,245,255,0.08);
+}
+.water-custom-unit {
+  position: absolute; right: 8px; top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.7rem; color: var(--text3);
+  pointer-events: none;
+}
+.btn-water-custom {
+  background: rgba(75,245,255,0.15);
+  border: 1px solid rgba(75,245,255,0.3);
+  color: #4bf5ff; font-family: inherit;
+  font-size: 0.78rem; font-weight: 700;
+  padding: 0.4rem 0.9rem; border-radius: 100px;
+  cursor: pointer; transition: all var(--transition);
+  white-space: nowrap;
+}
+.btn-water-custom:hover { background: rgba(75,245,255,0.25); }
+
+/* Water from food indicator */
+.water-from-food {
+  display: flex; align-items: center; gap: 0.4rem;
+  font-size: 0.75rem; color: #4bf5ff;
+  background: rgba(75,245,255,0.07);
+  border: 1px solid rgba(75,245,255,0.15);
+  border-radius: 100px;
+  padding: 0.25rem 0.7rem;
+  margin-top: 0.6rem;
+  width: fit-content;
+  animation: fadeInUp 0.4s ease;
+}

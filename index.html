@@ -148,6 +148,19 @@
             <button class="btn-water-sub" onclick="addWater(-250)" title="-1 Glass">− 1 Glass</button>
           </div>
           <div class="water-tip" id="water-tip"></div>
+          <!-- Custom ML input -->
+          <div class="water-custom-row">
+            <div class="water-custom-label">Or type amount:</div>
+            <div class="water-custom-input-wrap">
+              <input type="number" id="water-custom-ml" placeholder="e.g. 320" min="1" max="2000"/>
+              <span class="water-custom-unit">ml</span>
+            </div>
+            <button class="btn-water-custom" onclick="addCustomWater()">+ Add</button>
+          </div>
+          <!-- From food indicator -->
+          <div class="water-from-food" id="water-from-food" style="display:none">
+            <span>🥤 <span id="water-from-food-ml">0</span>ml from food today</span>
+          </div>
         </div>
         <div class="water-right">
           <div class="water-bottle-wrap">
