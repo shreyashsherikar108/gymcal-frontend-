@@ -360,3 +360,233 @@ select{cursor:pointer;}
 ::-webkit-scrollbar-thumb{background:var(--bg3);border-radius:100px;}
 ::-webkit-scrollbar-thumb:hover{background:var(--border2);}
 ::selection{background:rgba(185,255,75,.2);color:var(--accent);}
+
+/* ════════════════════════════════════
+   WATER TRACKER
+════════════════════════════════════ */
+.water-tracker-card {
+  background: var(--card);
+  border: 1px solid rgba(75,245,255,0.2);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+  display: grid;
+  grid-template-columns: 1fr 180px;
+  gap: 2rem;
+  align-items: center;
+  position: relative;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+.water-tracker-card::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, #4bf5ff, transparent);
+}
+.water-tracker-card::after {
+  content: '';
+  position: absolute; bottom: 0; left: 0; right: 0; top: 0;
+  background: radial-gradient(circle at 80% 50%, rgba(75,245,255,0.04), transparent 60%);
+  pointer-events: none;
+}
+
+.water-title {
+  font-family: 'Clash Display', sans-serif;
+  font-size: 0.95rem; font-weight: 700;
+  letter-spacing: -0.01em; margin-bottom: 0.5rem;
+}
+.water-consumed {
+  font-family: 'Clash Display', sans-serif;
+  font-size: 2rem; font-weight: 700; line-height: 1;
+  color: #4bf5ff; letter-spacing: -0.04em;
+}
+.water-target-text { font-size: 0.78rem; color: var(--text2); margin-top: 0.2rem; margin-bottom: 1rem; }
+
+/* Glass icons row */
+.water-glasses-row {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin-bottom: 1rem;
+}
+.water-glass {
+  width: 28px; height: 34px;
+  border: 1.5px solid rgba(75,245,255,0.3);
+  border-radius: 3px 3px 5px 5px;
+  cursor: pointer;
+  position: relative; overflow: hidden;
+  transition: all 0.25s cubic-bezier(0.4,0,0.2,1);
+  background: var(--bg3);
+}
+.water-glass:hover { transform: scale(1.15) translateY(-2px); border-color: #4bf5ff; }
+.water-glass.filled { border-color: #4bf5ff; }
+.glass-water {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  height: 0; background: linear-gradient(180deg, rgba(75,245,255,0.9), rgba(75,245,255,0.5));
+  transition: height 0.5s cubic-bezier(0.4,0,0.2,1);
+  border-radius: 0 0 3px 3px;
+}
+.glass-water.filled { height: 100%; }
+
+/* Water buttons */
+.water-buttons { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 0.8rem; }
+.btn-water-add {
+  background: rgba(75,245,255,0.12);
+  border: 1px solid rgba(75,245,255,0.3);
+  color: #4bf5ff; font-family: inherit;
+  font-size: 0.78rem; font-weight: 600;
+  padding: 0.45rem 0.9rem; border-radius: 100px;
+  cursor: pointer; transition: all var(--transition);
+  white-space: nowrap;
+}
+.btn-water-add:hover { background: rgba(75,245,255,0.22); transform: translateY(-1px); }
+.btn-water-add.half { background: rgba(75,245,255,0.08); }
+.btn-water-sub {
+  background: rgba(255,77,109,0.08);
+  border: 1px solid rgba(255,77,109,0.2);
+  color: var(--danger); font-family: inherit;
+  font-size: 0.78rem; font-weight: 600;
+  padding: 0.45rem 0.9rem; border-radius: 100px;
+  cursor: pointer; transition: all var(--transition);
+}
+.btn-water-sub:hover { background: rgba(255,77,109,0.15); }
+.water-tip { font-size: 0.78rem; color: var(--text2); font-style: italic; }
+
+/* Water bottle animation */
+.water-right { display: flex; justify-content: center; align-items: center; }
+.water-bottle-wrap { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; }
+.water-bottle {
+  width: 64px; height: 140px;
+  border: 2px solid rgba(75,245,255,0.4);
+  border-radius: 10px 10px 14px 14px;
+  position: relative; overflow: hidden;
+  background: rgba(75,245,255,0.04);
+  box-shadow: 0 0 20px rgba(75,245,255,0.1), inset 0 0 20px rgba(75,245,255,0.03);
+}
+.water-bottle::before {
+  content: '';
+  position: absolute; top: -10px; left: 50%; transform: translateX(-50%);
+  width: 28px; height: 12px;
+  border: 2px solid rgba(75,245,255,0.4);
+  border-bottom: none;
+  border-radius: 4px 4px 0 0;
+}
+.water-fill {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  height: 0%; min-height: 0;
+  background: linear-gradient(180deg, #4bf5ff, rgba(75,245,255,0.5));
+  transition: height 0.8s cubic-bezier(0.4,0,0.2,1);
+  overflow: hidden;
+}
+
+/* Water wave animation */
+.water-wave {
+  position: absolute; top: -8px; left: -40px;
+  width: 200%; height: 16px;
+  background: rgba(255,255,255,0.15);
+  border-radius: 50%;
+  animation: waveMove 2.5s ease-in-out infinite;
+}
+.water-wave.wave2 {
+  top: -5px; left: -20px;
+  animation: waveMove 2s ease-in-out infinite reverse;
+  opacity: 0.5;
+}
+@keyframes waveMove {
+  0%   { transform: translateX(0); }
+  50%  { transform: translateX(30px); }
+  100% { transform: translateX(0); }
+}
+
+/* Ripple on glass click */
+@keyframes ripple {
+  0%   { transform: scale(0); opacity: 0.5; }
+  100% { transform: scale(4); opacity: 0; }
+}
+.water-glass.ripple::after {
+  content: ''; position: absolute; inset: 0;
+  background: rgba(75,245,255,0.3);
+  border-radius: 50%;
+  animation: ripple 0.4s ease-out forwards;
+}
+
+.water-pct {
+  position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%,-50%);
+  font-family: 'Clash Display', sans-serif;
+  font-size: 0.85rem; font-weight: 700;
+  color: #fff; z-index: 2;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.5);
+}
+.water-bottle-label { font-size: 0.68rem; color: var(--text3); text-transform: uppercase; letter-spacing: 0.08em; }
+
+/* ════════════════════════════════════
+   WEIGHT CHANGE BANNER
+════════════════════════════════════ */
+.weight-change-banner {
+  display: flex; align-items: center; gap: 1rem;
+  padding: 1rem 1.2rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255,159,75,0.3);
+  background: rgba(255,159,75,0.06);
+  margin-bottom: 1rem;
+  animation: slideInRight 0.4s ease;
+  flex-wrap: wrap;
+}
+.weight-change-banner.positive {
+  border-color: rgba(185,255,75,0.35);
+  background: rgba(185,255,75,0.06);
+}
+.weight-change-banner.negative {
+  border-color: rgba(255,77,109,0.3);
+  background: rgba(255,77,109,0.05);
+}
+.wcb-icon { font-size: 1.6rem; flex-shrink: 0; }
+.wcb-text { flex: 1; min-width: 0; }
+.wcb-title {
+  font-family: 'Clash Display', sans-serif;
+  font-size: 0.95rem; font-weight: 700;
+}
+.wcb-sub { font-size: 0.8rem; color: var(--text2); margin-top: 0.2rem; }
+.btn-regenerate-now {
+  background: var(--accent); color: #000;
+  font-weight: 700; font-size: 0.82rem;
+  border: none; border-radius: 100px;
+  padding: 0.55rem 1.1rem; cursor: pointer;
+  font-family: inherit; white-space: nowrap;
+  display: flex; align-items: center; gap: 0.4rem;
+  transition: all var(--transition);
+  box-shadow: 0 4px 14px rgba(185,255,75,0.25);
+}
+.btn-regenerate-now:hover { background: #caff5a; transform: translateY(-1px); }
+.btn-regenerate-now:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+.wcb-dismiss {
+  background: none; border: none; color: var(--text3);
+  font-size: 0.9rem; cursor: pointer; padding: 0.3rem;
+  transition: color var(--transition);
+}
+.wcb-dismiss:hover { color: var(--text); }
+
+/* Sunday special styling in workout grid */
+.workout-day-card.sunday-rest {
+  border-color: rgba(167,139,250,0.3);
+  background: rgba(167,139,250,0.04);
+}
+.sunday-badge {
+  font-size: 0.68rem; background: rgba(167,139,250,0.15);
+  color: var(--accent4); padding: 0.15rem 0.5rem;
+  border-radius: 100px; font-weight: 600;
+}
+
+/* ════════════════════════════════════
+   RESPONSIVE WATER
+════════════════════════════════════ */
+@media (max-width: 900px) {
+  .water-tracker-card { grid-template-columns: 1fr; }
+  .water-right { justify-content: flex-start; }
+  .water-bottle-wrap { flex-direction: row; align-items: center; gap: 1rem; }
+  .water-bottle { width: 50px; height: 110px; }
+}
+@media (max-width: 480px) {
+  .water-glasses-row { gap: 4px; }
+  .water-glass { width: 24px; height: 30px; }
+  .weight-change-banner { flex-direction: column; align-items: flex-start; }
+}

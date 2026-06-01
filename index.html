@@ -132,6 +132,37 @@
         <div class="calqual-card bad"><div class="calqual-icon">🔴</div><div class="calqual-info"><div class="calqual-val" id="dash-bad-cal">0</div><div class="calqual-lbl">Dense Calories<small>Fats</small></div></div></div>
         <div class="calqual-card score"><div class="calqual-icon" id="dash-qual-emoji">⭐</div><div class="calqual-info"><div class="calqual-val" id="dash-qual-text">—</div><div class="calqual-lbl">Diet Quality<small>Today's score</small></div></div></div>
       </div>
+
+      <!-- WATER INTAKE TRACKER -->
+      <div class="water-tracker-card" id="water-tracker-card">
+        <div class="water-left">
+          <div class="water-title">💧 Daily Hydration</div>
+          <div class="water-stats">
+            <div class="water-consumed" id="water-consumed-display">0 ml</div>
+            <div class="water-target-text" id="water-target-text">of — ml target</div>
+          </div>
+          <div class="water-glasses-row" id="water-glasses-row"></div>
+          <div class="water-buttons">
+            <button class="btn-water-add" onclick="addWater(250)" title="+1 Glass">+ 1 Glass (250ml)</button>
+            <button class="btn-water-add half" onclick="addWater(500)" title="+2 Glasses">+ 500ml</button>
+            <button class="btn-water-sub" onclick="addWater(-250)" title="-1 Glass">− 1 Glass</button>
+          </div>
+          <div class="water-tip" id="water-tip"></div>
+        </div>
+        <div class="water-right">
+          <div class="water-bottle-wrap">
+            <div class="water-bottle">
+              <div class="water-fill" id="water-fill-bar">
+                <div class="water-wave"></div>
+                <div class="water-wave wave2"></div>
+              </div>
+              <div class="water-pct" id="water-pct-text">0%</div>
+            </div>
+            <div class="water-bottle-label">Hydration Level</div>
+          </div>
+        </div>
+      </div>
+
       <div class="section-title">Today's Meals</div>
       <div id="today-meals-list" class="meals-list"><div class="empty-state">No food logged yet. <a onclick="showPage('food')">Add your first meal →</a></div></div>
     </div>
@@ -221,6 +252,19 @@
             <span class="btn-text">⚡ Generate AI Plan</span><span class="btn-loader hidden">⟳</span>
           </button>
         </div>
+      </div>
+
+      <!-- Weight Change Banner -->
+      <div id="weight-change-banner" class="weight-change-banner hidden">
+        <div class="wcb-icon" id="wcb-icon">⚖️</div>
+        <div class="wcb-text">
+          <div class="wcb-title" id="wcb-title">Weight Updated!</div>
+          <div class="wcb-sub" id="wcb-sub"></div>
+        </div>
+        <button class="btn-regenerate-now" onclick="autoRegeneratePlan()">
+          <span class="btn-text">Update Plan ✨</span><span class="btn-loader hidden">⟳</span>
+        </button>
+        <button class="wcb-dismiss" onclick="dismissWeightBanner()">✕</button>
       </div>
 
       <div id="workout-plan-section" class="hidden">

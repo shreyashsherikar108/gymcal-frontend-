@@ -128,6 +128,7 @@ function closeMobileMenu(){document.getElementById('mobile-nav').classList.add('
 async function loadDashboard(){
   try{const s=await api('GET','/food/daily'); renderDashboard(s);}
   catch(e){showToast('Could not load dashboard','error');}
+  loadWater(); // always load water status on dashboard
 }
 function renderDashboard(s){
   if(!s) return;
@@ -272,8 +273,14 @@ async function deleteLog(id){
 async function loadWorkoutPage(){
   try{
     const plan=await api('GET','/workout/active');
-    if(plan&&plan.weeklyPlan&&plan.weeklyPlan.length>0){currentPlan=plan;showWorkoutPlan(plan);}
-    else showWorkoutForm();
+    if(plan&&plan.weeklyPlan&&plan.weeklyPlan.length>0){
+      currentPlan=plan;
+      // Check if weight has changed significantly
+      if(plan.weightChanged) showWeightChangeBanner(plan);
+      showWorkoutPlan(plan);
+    } else {
+      showWorkoutForm();
+    }
   }catch(e){showWorkoutForm();}
 }
 function showWorkoutForm(){
@@ -327,13 +334,18 @@ function renderWorkoutPlan(plan){
   }
 
   const today=new Date().toLocaleDateString('en',{weekday:'long'});
+  const isSundayToday = new Date().getDay() === 0;
   const grid=document.getElementById('weekly-workout-grid'); if(!grid) return;
   grid.innerHTML=(plan.weeklyPlan||[]).map(day=>{
     const isToday=today.startsWith(day.day);
+    const isSunday = day.day === 'Sunday';
     if(day.isRestDay) return `
-      <div class="workout-day-card rest ${isToday?'today':''}">
-        <div class="day-header"><div class="day-name">${day.day}</div><div class="day-focus rest-badge">😴 Rest Day</div></div>
-        <p class="rest-msg">Recovery is part of the plan. Stay hydrated!</p>
+      <div class="workout-day-card rest ${isToday?'today':''} ${isSunday?'sunday-rest':''}">
+        <div class="day-header">
+          <div class="day-name">${day.day}${isToday?' <span class="today-chip">Today</span>':''}${isSunday?' <span class="sunday-badge">🙏 Sunday</span>':''}</div>
+          <div class="day-focus rest-badge">${isSunday?'🌅 Sunday Rest':'😴 Rest Day'}</div>
+        </div>
+        <p class="rest-msg">${isSunday?'Sunday is your sacred rest day. Relax, recover, recharge! 🙏':'Recovery is part of the plan. Stay hydrated!'}</p>
       </div>`;
     return `
       <div class="workout-day-card ${isToday?'today':''}">
@@ -467,3 +479,121 @@ function showToast(msg,type='success'){
   t.classList.remove('hidden'); clearTimeout(toastTimer);
   toastTimer=setTimeout(()=>t.classList.add('hidden'),3500);
 }
+
+// ── WATER TRACKER ────────────────────────────────────────────
+let waterState = { targetMl: 2000, consumedMl: 0, glassCount: 0, targetGlasses: 8, percentage: 0 };
+
+async function loadWater() {
+  try {
+    const d = await api('GET', '/water/status');
+    waterState = d;
+    renderWater(d);
+  } catch (e) { console.error('Water load failed:', e); }
+}
+
+async function addWater(ml) {
+  try {
+    const d = await api('POST', '/water/add', { ml });
+    waterState = d;
+    renderWater(d, true);
+    if (ml > 0) showToast('💧 Water logged!');
+  } catch (e) { showToast('Failed to log water', 'error'); }
+}
+
+function renderWater(d, animate = false) {
+  const pct = Math.min(d.percentage || 0, 100);
+  const consumed = Math.round(d.consumedMl || 0);
+  const target = Math.round(d.targetMl || 2000);
+  const glasses = d.glassCount || 0;
+  const tGlasses = d.targetGlasses || 8;
+
+  setEl('water-consumed-display', `${consumed} ml`);
+  setEl('water-target-text', `of ${target} ml target`);
+  setEl('water-pct-text', `${pct}%`);
+
+  // Animate water fill
+  const fill = document.getElementById('water-fill-bar');
+  if (fill) {
+    fill.style.transition = animate ? 'height 0.8s cubic-bezier(0.4,0,0.2,1)' : 'none';
+    fill.style.height = `${pct}%`;
+    // Color based on percentage
+    if (pct >= 100) fill.style.background = 'linear-gradient(180deg, #00d084, #00a86b)';
+    else if (pct >= 70) fill.style.background = 'linear-gradient(180deg, #4bf5ff, #00b8d4)';
+    else if (pct >= 40) fill.style.background = 'linear-gradient(180deg, #4bf5ff, #0088a3)';
+    else fill.style.background = 'linear-gradient(180deg, #4bf5ff99, #4bf5ff44)';
+  }
+
+  // Render glass icons
+  const row = document.getElementById('water-glasses-row');
+  if (row) {
+    let html = '';
+    for (let i = 0; i < tGlasses; i++) {
+      const filled = i < glasses;
+      html += `<div class="water-glass ${filled ? 'filled' : ''}" onclick="addWater(${filled ? -250 : 250})" title="${filled ? 'Remove glass' : 'Add glass'}">
+        <div class="glass-water ${filled ? 'filled' : ''}"></div>
+      </div>`;
+    }
+    row.innerHTML = html;
+  }
+
+  // Tip text
+  const tipEl = document.getElementById('water-tip');
+  if (tipEl) {
+    const rem = Math.max(0, target - consumed);
+    if (pct >= 100) tipEl.textContent = '🌟 Hydration goal achieved! Amazing!';
+    else if (pct >= 70) tipEl.textContent = `💪 Almost there! ${Math.round(rem)}ml more to go`;
+    else if (pct >= 40) tipEl.textContent = `⏰ Keep drinking! ${Math.round(rem)}ml remaining`;
+    else tipEl.textContent = `🚰 Start hydrating! ${tGlasses - glasses} glasses remaining`;
+  }
+}
+
+// ── WORKOUT WEIGHT CHANGE ─────────────────────────────────────
+function showWeightChangeBanner(plan) {
+  const banner = document.getElementById('weight-change-banner');
+  if (!banner) return;
+  banner.classList.remove('hidden');
+
+  const delta = plan.weightChangeDelta || 0;
+  const absDelta = Math.abs(delta).toFixed(1);
+  const isPositive = plan.weightChangePositive;
+  const goal = plan.goal || '';
+
+  const icon = document.getElementById('wcb-icon');
+  const title = document.getElementById('wcb-title');
+  const sub = document.getElementById('wcb-sub');
+
+  if (isPositive) {
+    banner.classList.add('positive'); banner.classList.remove('negative');
+    if (icon) icon.textContent = '🎯';
+    if (title) title.textContent = `Great Progress! ${absDelta}kg ${delta < 0 ? 'Lost' : 'Gained'}`;
+    if (sub) sub.textContent = `You're closer to your ${fmtGoal(goal)} goal! Update your plan for better results.`;
+  } else {
+    banner.classList.add('negative'); banner.classList.remove('positive');
+    if (icon) icon.textContent = '⚠️';
+    if (title) title.textContent = `Weight Changed by ${absDelta}kg`;
+    if (sub) sub.textContent = `Update your workout plan to stay on track with your ${fmtGoal(goal)} goal.`;
+  }
+}
+
+function dismissWeightBanner() {
+  const b = document.getElementById('weight-change-banner');
+  if (b) b.classList.add('hidden');
+}
+
+async function autoRegeneratePlan() {
+  const btn = document.querySelector('.btn-regenerate-now');
+  setLoading(btn, true);
+  try {
+    const plan = await api('POST', '/workout/regenerate');
+    currentPlan = plan;
+    dismissWeightBanner();
+    showWorkoutPlan(plan);
+    showToast('✓ Workout plan updated for your new weight!');
+  } catch (e) {
+    showToast('Failed: ' + e.message, 'error');
+  } finally { setLoading(btn, false); }
+}
+
+// loadDashboard also triggers water load
+// loadWorkoutPage also handles weight change detection
+// (both functions redefined above with this logic already integrated)
