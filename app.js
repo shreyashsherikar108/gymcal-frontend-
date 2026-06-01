@@ -250,6 +250,7 @@ async function addToLog(){
       calories:currentFood.calories, proteinGrams:currentFood.proteinGrams,
       carbsGrams:currentFood.carbsGrams, fatGrams:currentFood.fatGrams,
       fiberGrams:currentFood.fiberGrams||0,
+      waterContentMl:currentFood.waterContentMl||0,
       goodCalories:currentFood.goodCalories||0, badCalories:currentFood.badCalories||0,
       carbCalories:currentFood.carbCalories||0,
       aiAnalysis:currentFood.aiAnalysis
