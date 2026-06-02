@@ -1,558 +1,636 @@
-/* ═══════════════════════════════════════════
-   GYMCAL FRONTEND — app.js
-   Connects to Spring Boot backend via REST
-═══════════════════════════════════════════ */
-
-// ── CONFIG ──
-// Change this to your deployed backend URL
+/* GymCal Premium App.js */
 const API_BASE = window.location.hostname === 'localhost'
   ? 'http://localhost:8080/api'
-  : 'https://gymcal-backend.onrender.com/api';
+  : 'https://gymcal-backend-1.onrender.com/api';
 
-// ── STATE ──
 let token = localStorage.getItem('gymcal_token') || null;
-let userData = null;
-let currentFood = null; // food search result in memory
-let dailySummary = null;
+let userData = null, currentFood = null, currentPlan = null;
 
-// ── INIT ──
-document.addEventListener('DOMContentLoaded', () => {
+// ── ANIMATED BG ──────────────────────────────────────────────
+(function(){
+  const canvas = document.getElementById('bg-canvas');
+  if(!canvas) return;
+  const ctx = canvas.getContext('2d');
+  let W,H,pts=[];
+  function resize(){ W=canvas.width=innerWidth; H=canvas.height=innerHeight; }
+  function init(){ pts=[]; const n=Math.floor(W*H/18000);
+    for(let i=0;i<n;i++) pts.push({x:Math.random()*W,y:Math.random()*H,r:Math.random()*1.2+.3,vx:(Math.random()-.5)*.25,vy:(Math.random()-.5)*.25,op:Math.random()*.35+.1,c:['#b9ff4b','#4bf5ff','#a78bfa'][Math.floor(Math.random()*3)]}); }
+  function draw(){ ctx.clearRect(0,0,W,H);
+    ctx.strokeStyle='rgba(185,255,75,0.02)';ctx.lineWidth=1;
+    for(let x=0;x<W;x+=60){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
+    for(let y=0;y<H;y+=60){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+    pts.forEach(p=>{ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fillStyle=p.c;ctx.globalAlpha=p.op;ctx.fill();ctx.globalAlpha=1;p.x+=p.vx;p.y+=p.vy;if(p.x<0||p.x>W)p.vx*=-1;if(p.y<0||p.y>H)p.vy*=-1;});
+    requestAnimationFrame(draw); }
+  resize();init();draw();
+  addEventListener('resize',()=>{resize();init();});
+})();
+
+document.addEventListener('DOMContentLoaded',()=>{
   updateGreeting();
-  if (token) {
-    showApp();
-  }
+  if(token) showApp();
+  setTimeout(()=>{
+    const fi=document.getElementById('food-name-input');
+    if(fi) fi.addEventListener('keydown',e=>{if(e.key==='Enter')searchFood();});
+    const lp=document.getElementById('login-password');
+    if(lp) lp.addEventListener('keydown',e=>{if(e.key==='Enter')handleLogin();});
+  },300);
 });
 
-function updateGreeting() {
-  const hour = new Date().getHours();
-  const greet = hour < 12 ? 'Good Morning 👋' : hour < 17 ? 'Good Afternoon 👋' : 'Good Evening 👋';
-  const el = document.getElementById('greeting-text');
-  if (el) el.textContent = greet;
-  const dateEl = document.getElementById('greeting-date');
-  if (dateEl) dateEl.textContent = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' });
+function updateGreeting(){
+  const h=new Date().getHours();
+  const g=h<12?'Good Morning 👋':h<17?'Good Afternoon 👋':'Good Evening 👋';
+  setEl('greeting-text',g);
+  setEl('greeting-date',new Date().toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long',year:'numeric'}));
 }
 
-// ══════════════════════════════════════════
-// API HELPER
-// ══════════════════════════════════════════
-async function api(method, path, body = null) {
-  const opts = {
-    method,
-    headers: { 'Content-Type': 'application/json' }
-  };
-  if (token) opts.headers['Authorization'] = `Bearer ${token}`;
-  if (body) opts.body = JSON.stringify(body);
-  const res = await fetch(`${API_BASE}${path}`, opts);
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || data.message || 'Request failed');
+// ── API ──────────────────────────────────────────────────────
+async function api(method,path,body=null){
+  const opts={method,headers:{'Content-Type':'application/json'}};
+  if(token) opts.headers['Authorization']=`Bearer ${token}`;
+  if(body) opts.body=JSON.stringify(body);
+  const res=await fetch(`${API_BASE}${path}`,opts);
+  const data=await res.json();
+  if(!res.ok) throw new Error(data.error||data.message||'Request failed');
   return data;
 }
 
-// ══════════════════════════════════════════
-// AUTH
-// ══════════════════════════════════════════
-function toggleAuth(mode) {
-  const loginForm = document.getElementById('login-form');
-  const regForm = document.getElementById('register-form');
-  if (mode === 'register') {
-    loginForm.classList.add('hidden');
-    regForm.classList.remove('hidden');
-  } else {
-    loginForm.classList.remove('hidden');
-    regForm.classList.add('hidden');
-  }
+// ── AUTH ─────────────────────────────────────────────────────
+function toggleAuth(mode){
+  document.getElementById('login-form').classList.toggle('hidden',mode==='register');
+  document.getElementById('register-form').classList.toggle('hidden',mode!=='register');
 }
-
-function selectGoal(el) {
-  document.querySelectorAll('.goal-card').forEach(c => c.classList.remove('active'));
+function selectGoal(el){
+  document.querySelectorAll('.goal-card').forEach(c=>c.classList.remove('active'));
   el.classList.add('active');
 }
-
-async function handleLogin() {
-  const email = document.getElementById('login-email').value.trim();
-  const password = document.getElementById('login-password').value;
-  const errEl = document.getElementById('login-error');
-  const btn = document.querySelector('#login-form .btn-primary');
-
-  if (!email || !password) { showError(errEl, 'Please fill in all fields.'); return; }
-
-  setLoading(btn, true);
-  errEl.classList.add('hidden');
-
-  try {
-    const data = await api('POST', '/auth/login', { email, password });
-    token = data.token;
-    localStorage.setItem('gymcal_token', token);
-    userData = data;
-    showApp();
-  } catch (e) {
-    showError(errEl, e.message);
-  } finally {
-    setLoading(btn, false);
-  }
+async function handleLogin(){
+  const email=document.getElementById('login-email').value.trim();
+  const password=document.getElementById('login-password').value;
+  const errEl=document.getElementById('login-error');
+  const btn=document.querySelector('#login-form .btn-primary');
+  if(!email||!password){showError(errEl,'Fill all fields');return;}
+  setLoading(btn,true); errEl.classList.add('hidden');
+  try{ const d=await api('POST','/auth/login',{email,password});
+    token=d.token; localStorage.setItem('gymcal_token',token); userData=d; showApp();
+  }catch(e){showError(errEl,e.message);}finally{setLoading(btn,false);}
+}
+async function handleRegister(){
+  const name=document.getElementById('reg-name').value.trim();
+  const email=document.getElementById('reg-email').value.trim();
+  const password=document.getElementById('reg-password').value;
+  const weightKg=parseFloat(document.getElementById('reg-weight').value);
+  const heightCm=parseFloat(document.getElementById('reg-height').value);
+  const age=parseInt(document.getElementById('reg-age').value);
+  const gender=document.getElementById('reg-gender').value;
+  const activityLevel=document.getElementById('reg-activity').value;
+  const goalEl=document.querySelector('.goal-card.active');
+  const goal=goalEl?goalEl.dataset.goal:'MAINTAIN';
+  const errEl=document.getElementById('reg-error');
+  const btn=document.querySelector('#register-form .btn-primary');
+  if(!name||!email||!password||!weightKg||!heightCm||!age){showError(errEl,'Fill all fields');return;}
+  setLoading(btn,true); errEl.classList.add('hidden');
+  try{ const d=await api('POST','/auth/register',{name,email,password,weightKg,heightCm,age,gender,goal,activityLevel});
+    token=d.token; localStorage.setItem('gymcal_token',token); userData=d; showApp();
+  }catch(e){showError(errEl,e.message);}finally{setLoading(btn,false);}
+}
+function handleLogout(){
+  token=null; userData=null; localStorage.removeItem('gymcal_token');
+  document.getElementById('app-screen').className='screen hidden';
+  document.getElementById('auth-screen').className='screen active';
 }
 
-async function handleRegister() {
-  const name = document.getElementById('reg-name').value.trim();
-  const email = document.getElementById('reg-email').value.trim();
-  const password = document.getElementById('reg-password').value;
-  const weightKg = parseFloat(document.getElementById('reg-weight').value);
-  const heightCm = parseFloat(document.getElementById('reg-height').value);
-  const age = parseInt(document.getElementById('reg-age').value);
-  const gender = document.getElementById('reg-gender').value;
-  const activityLevel = document.getElementById('reg-activity').value;
-  const goalEl = document.querySelector('.goal-card.active');
-  const goal = goalEl ? goalEl.dataset.goal : 'MAINTAIN';
-
-  const errEl = document.getElementById('reg-error');
-  const btn = document.querySelector('#register-form .btn-primary');
-
-  if (!name || !email || !password || !weightKg || !heightCm || !age) {
-    showError(errEl, 'Please fill in all fields.'); return;
-  }
-
-  setLoading(btn, true);
-  errEl.classList.add('hidden');
-
-  try {
-    const data = await api('POST', '/auth/register', { name, email, password, weightKg, heightCm, age, gender, goal, activityLevel });
-    token = data.token;
-    localStorage.setItem('gymcal_token', token);
-    userData = data;
-    showApp();
-  } catch (e) {
-    showError(errEl, e.message);
-  } finally {
-    setLoading(btn, false);
-  }
-}
-
-function handleLogout() {
-  token = null;
-  userData = null;
-  localStorage.removeItem('gymcal_token');
-  document.getElementById('app-screen').classList.add('hidden');
-  document.getElementById('app-screen').classList.remove('active');
-  document.getElementById('auth-screen').classList.remove('hidden');
-  document.getElementById('auth-screen').classList.add('active');
-}
-
-// ══════════════════════════════════════════
-// APP NAVIGATION
-// ══════════════════════════════════════════
-async function showApp() {
-  document.getElementById('auth-screen').classList.add('hidden');
-  document.getElementById('auth-screen').classList.remove('active');
-  document.getElementById('app-screen').classList.remove('hidden');
-  document.getElementById('app-screen').classList.add('active');
-
-  // Load profile
-  try {
-    userData = await api('GET', '/user/profile');
-    updateSidebarUser();
-    populateProfilePage();
-  } catch (e) {
-    // token might be expired
-    if (e.message.includes('401') || e.message.includes('Unauthorized')) {
-      handleLogout(); return;
-    }
-  }
-
+// ── APP ──────────────────────────────────────────────────────
+async function showApp(){
+  document.getElementById('auth-screen').className='screen hidden';
+  document.getElementById('app-screen').className='screen active';
+  try{
+    userData=await api('GET','/user/profile');
+    updateSidebarUser(); populateProfilePage();
+  }catch(e){ if(e.message.includes('401')){handleLogout();return;} }
   showPage('dashboard');
 }
-
-function showPage(page) {
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
-
-  document.getElementById(`page-${page}`).classList.add('active');
-  document.querySelectorAll(`[data-page="${page}"]`).forEach(l => l.classList.add('active'));
-
-  if (page === 'dashboard') loadDashboard();
-  if (page === 'food') loadFoodPage();
-  if (page === 'weekly') loadWeekly();
-  if (page === 'profile') populateProfilePage();
+function showPage(page){
+  document.querySelectorAll('.page').forEach(p=>{p.classList.remove('active');p.classList.add('hidden');});
+  document.querySelectorAll('.nav-link').forEach(l=>l.classList.remove('active'));
+  const pg=document.getElementById(`page-${page}`);
+  if(pg){pg.classList.remove('hidden');pg.classList.add('active');}
+  document.querySelectorAll(`[data-page="${page}"]`).forEach(l=>l.classList.add('active'));
+  if(page==='dashboard') loadDashboard();
+  if(page==='food') loadFoodPage();
+  if(page==='weekly') loadWeekly();
+  if(page==='profile') populateProfilePage();
+  if(page==='workout') loadWorkoutPage();
 }
+function toggleMobileMenu(){document.getElementById('mobile-nav').classList.toggle('hidden');}
+function closeMobileMenu(){document.getElementById('mobile-nav').classList.add('hidden');}
 
-function toggleMobileMenu() {
-  document.getElementById('mobile-nav').classList.toggle('hidden');
+// ── DASHBOARD ────────────────────────────────────────────────
+async function loadDashboard(){
+  try{const s=await api('GET','/food/daily'); renderDashboard(s);}
+  catch(e){showToast('Could not load dashboard','error');}
+  loadWater(); // always load water status on dashboard
 }
-function closeMobileMenu() {
-  document.getElementById('mobile-nav').classList.add('hidden');
-}
+function renderDashboard(s){
+  if(!s) return;
+  const pct=Math.min((s.calorieProgress||0)/100,1);
+  const fill=document.getElementById('calorie-ring-fill');
+  if(fill) fill.style.strokeDashoffset=502*(1-pct);
+  setEl('ring-consumed',Math.round(s.consumedCalories||0));
+  const rem=Math.round(s.remainingCalories||0);
+  setEl('ring-remaining',rem>0?`${rem} kcal left`:'🎯 Goal reached!');
+  if(userData) setEl('ring-target-label',`of ${Math.round(userData.dailyCalorieTarget||0)} kcal target`);
 
-// ══════════════════════════════════════════
-// DASHBOARD
-// ══════════════════════════════════════════
-async function loadDashboard() {
-  try {
-    dailySummary = await api('GET', '/food/daily');
-    renderDashboard(dailySummary);
-  } catch (e) {
-    showToast('Could not load dashboard: ' + e.message, 'error');
+  const tP=userData?.dailyProteinTarget||1,tC=userData?.dailyCarbTarget||1,tF=userData?.dailyFatTarget||1;
+  setEl('dash-protein',`${Math.round(s.consumedProtein||0)}g`);
+  setEl('dash-carbs',`${Math.round(s.consumedCarbs||0)}g`);
+  setEl('dash-fat',`${Math.round(s.consumedFat||0)}g`);
+  setStyle('dash-protein-bar','width',`${Math.min((s.consumedProtein/tP)*100,100)}%`);
+  setStyle('dash-carbs-bar','width',`${Math.min((s.consumedCarbs/tC)*100,100)}%`);
+  setStyle('dash-fat-bar','width',`${Math.min((s.consumedFat/tF)*100,100)}%`);
+  setEl('dash-protein-target',`of ${Math.round(tP)}g`);
+  setEl('dash-carbs-target',`of ${Math.round(tC)}g`);
+  setEl('dash-fat-target',`of ${Math.round(tF)}g`);
+
+  // Good/Bad calories
+  const good=Math.round(s.goodCalories||0), bad=Math.round(s.badCalories||0), carb=Math.round(s.carbCalories||0);
+  if(good+bad+carb>0){
+    document.getElementById('calqual-row').style.display='grid';
+    setEl('dash-good-cal',good+' kcal'); setEl('dash-bad-cal',bad+' kcal'); setEl('dash-carb-cal',carb+' kcal');
+    const q=calcQuality(good,bad);
+    setEl('dash-qual-text',q.label); setEl('dash-qual-emoji',q.emoji);
   }
+  renderMealsList('today-meals-list',s.meals||[]);
 }
 
-function renderDashboard(s) {
-  if (!s) return;
-
-  // Calorie Ring
-  const pct = Math.min(s.calorieProgress / 100, 1);
-  const circumference = 502;
-  document.getElementById('calorie-ring-fill').style.strokeDashoffset = circumference * (1 - pct);
-  document.getElementById('ring-consumed').textContent = Math.round(s.consumedCalories);
-  const remaining = Math.round(s.remainingCalories);
-  document.getElementById('ring-remaining').textContent = remaining > 0 ? `${remaining} left` : 'Goal reached!';
-
-  // Macro bars
-  const proteinPct = userData ? Math.min((s.consumedProtein / userData.dailyProteinTarget) * 100, 100) : 0;
-  const carbsPct = userData ? Math.min((s.consumedCarbs / userData.dailyCarbTarget) * 100, 100) : 0;
-  const fatPct = userData ? Math.min((s.consumedFat / userData.dailyFatTarget) * 100, 100) : 0;
-
-  document.getElementById('dash-protein').textContent = `${Math.round(s.consumedProtein)}g`;
-  document.getElementById('dash-carbs').textContent = `${Math.round(s.consumedCarbs)}g`;
-  document.getElementById('dash-fat').textContent = `${Math.round(s.consumedFat)}g`;
-
-  document.getElementById('dash-protein-bar').style.width = `${proteinPct}%`;
-  document.getElementById('dash-carbs-bar').style.width = `${carbsPct}%`;
-  document.getElementById('dash-fat-bar').style.width = `${fatPct}%`;
-
-  if (userData) {
-    document.getElementById('dash-protein-target').textContent = `of ${Math.round(userData.dailyProteinTarget)}g`;
-    document.getElementById('dash-carbs-target').textContent = `of ${Math.round(userData.dailyCarbTarget)}g`;
-    document.getElementById('dash-fat-target').textContent = `of ${Math.round(userData.dailyFatTarget)}g`;
-  }
-
-  // Meals
-  renderMealsList('today-meals-list', s.meals || []);
+function calcQuality(good,bad){
+  if(bad===0&&good>0) return{label:'Excellent',emoji:'🌟'};
+  if(good>bad*2)  return{label:'Excellent',emoji:'🌟'};
+  if(good>bad)    return{label:'Good',emoji:'✅'};
+  if(good>bad*.5) return{label:'Moderate',emoji:'⚠️'};
+  return{label:'Poor',emoji:'❌'};
 }
 
-function renderMealsList(containerId, meals) {
-  const container = document.getElementById(containerId);
-  if (!meals || meals.length === 0) {
-    container.innerHTML = `<div class="empty-state">No food logged yet today. <a onclick="showPage('food')">Add your first meal →</a></div>`;
-    return;
-  }
-  container.innerHTML = meals.map(meal => `
+function renderMealsList(cid,meals){
+  const c=document.getElementById(cid); if(!c) return;
+  if(!meals||!meals.length){c.innerHTML=`<div class="empty-state">No food logged yet. <a onclick="showPage('food')">Add your first meal →</a></div>`;return;}
+  c.innerHTML=meals.map(m=>`
     <div class="meal-group">
-      <div class="meal-group-header">
-        <span>${mealEmoji(meal.mealType)} ${meal.mealType}</span>
-        <span class="meal-group-kcal">${Math.round(meal.totalCalories)} kcal</span>
-      </div>
-      ${(meal.items || []).map(item => `
+      <div class="meal-group-header"><span>${mealEmoji(m.mealType)} ${m.mealType}</span><span class="meal-group-kcal">${Math.round(m.totalCalories||0)} kcal</span></div>
+      ${(m.items||[]).map(i=>`
         <div class="food-item">
           <div class="food-item-left">
-            <div class="food-item-name">${item.foodName}</div>
-            <div class="food-item-macros">${item.quantityGrams}g · P: ${item.proteinGrams}g · C: ${item.carbsGrams}g · F: ${item.fatGrams}g</div>
+            <div class="food-item-name">${i.foodName}</div>
+            <div class="food-item-macros">${fmtQty(i)} · P:${Math.round(i.proteinGrams||0)}g · C:${Math.round(i.carbsGrams||0)}g · F:${Math.round(i.fatGrams||0)}g</div>
           </div>
-          <div class="food-item-cal">${item.calories} kcal</div>
-          <button class="btn-delete" onclick="deleteLog('${item.id}')" title="Remove">✕</button>
-        </div>
-      `).join('')}
-    </div>
-  `).join('');
+          <div style="display:flex;align-items:center;gap:.5rem">
+            <div class="food-item-cal">${Math.round(i.calories||0)} kcal</div>
+            ${i.goodCalories>0?`<span class="cal-badge good">🟢${Math.round(i.goodCalories)}</span>`:''}
+            <button class="btn-delete" onclick="deleteLog('${i.id}')" title="Remove">✕</button>
+          </div>
+        </div>`).join('')}
+    </div>`).join('');
 }
-
-function mealEmoji(type) {
-  const map = { BREAKFAST: '🌅', LUNCH: '☀️', DINNER: '🌙', SNACK: '🍿' };
-  return map[type] || '🍽️';
+function fmtQty(i){
+  if(i.quantityUnit&&i.quantityUnit!=='grams') return `${i.quantityAmount}${i.quantityUnit} (${i.quantityGrams}g)`;
+  return `${i.quantityGrams||i.quantityAmount}g`;
 }
+function mealEmoji(t){return{BREAKFAST:'🌅',LUNCH:'☀️',DINNER:'🌙',SNACK:'🍿'}[t]||'🍽️';}
 
-// ══════════════════════════════════════════
-// FOOD SEARCH & LOG
-// ══════════════════════════════════════════
-async function loadFoodPage() {
-  try {
-    dailySummary = await api('GET', '/food/daily');
-    renderMealsList('food-log-list', dailySummary.meals || []);
-  } catch (e) {
-    console.error(e);
-  }
+// ── FOOD ─────────────────────────────────────────────────────
+async function loadFoodPage(){
+  try{const s=await api('GET','/food/daily'); renderMealsList('food-log-list',s.meals||[]);}
+  catch(e){console.error(e);}
 }
-
-async function searchFood() {
-  const name = document.getElementById('food-name-input').value.trim();
-  const qty = parseFloat(document.getElementById('food-qty-input').value) || 100;
-  const errEl = document.getElementById('food-search-error');
-  const loadEl = document.getElementById('food-search-loading');
-  const resultEl = document.getElementById('food-search-result');
-
-  if (!name) { showError(errEl, 'Please enter a food name.'); return; }
-
-  errEl.classList.add('hidden');
-  resultEl.classList.add('hidden');
+async function searchFood(){
+  const name=document.getElementById('food-name-input').value.trim();
+  const qty=parseFloat(document.getElementById('food-qty-input').value)||100;
+  const unit=document.getElementById('food-unit-select').value;
+  const errEl=document.getElementById('food-search-error');
+  const loadEl=document.getElementById('food-search-loading');
+  const resultEl=document.getElementById('food-search-result');
+  if(!name){showError(errEl,'Enter food name');return;}
+  errEl.classList.add('hidden'); resultEl.classList.add('hidden');
   loadEl.classList.remove('hidden');
-
-  try {
-    const data = await api('POST', '/food/search', { foodName: name, quantityGrams: qty });
-    currentFood = data;
-    renderFoodResult(data);
-  } catch (e) {
-    showError(errEl, e.message);
-  } finally {
-    loadEl.classList.add('hidden');
-  }
+  try{
+    const d=await api('POST','/food/search',{foodName:name,quantityAmount:qty,quantityUnit:unit});
+    currentFood=d; renderFoodResult(d);
+  }catch(e){showError(errEl,e.message);}
+  finally{loadEl.classList.add('hidden');}
+}
+function renderFoodResult(d){
+  setEl('result-name',d.foodName);
+  const qLabel=d.quantityUnit&&d.quantityUnit!=='grams'?`${d.quantityAmount} ${d.quantityUnit} (${d.quantityGrams}g)`:`${d.quantityGrams}g`;
+  setEl('result-qty',qLabel);
+  const q=d.calQuality||''; 
+  const qEl=document.getElementById('result-quality');
+  if(qEl){qEl.textContent=q;qEl.className='result-quality '+q.toLowerCase();}
+  setEl('res-cal',Math.round(d.calories||0));
+  setEl('res-pro',`${Math.round(d.proteinGrams||0)}g`);
+  setEl('res-car',`${Math.round(d.carbsGrams||0)}g`);
+  setEl('res-fat',`${Math.round(d.fatGrams||0)}g`);
+  setEl('res-fib',`${Math.round(d.fiberGrams||0)}g`);
+  setEl('res-good-cal',Math.round(d.goodCalories||0));
+  setEl('res-bad-cal',Math.round(d.badCalories||0));
+  setEl('res-carb-cal',Math.round(d.carbCalories||0));
+  setEl('result-ai',d.aiAnalysis||'');
+  document.getElementById('food-search-result').classList.remove('hidden');
+}
+async function addToLog(){
+  if(!currentFood) return;
+  const mealType=document.getElementById('meal-type-select').value;
+  const today=new Date().toISOString().split('T')[0];
+  const btn=document.querySelector('.add-to-log-row .btn-primary');
+  setLoading(btn,true);
+  try{
+    await api('POST','/food/log',{
+      foodName:currentFood.foodName,
+      quantityAmount:currentFood.quantityAmount, quantityUnit:currentFood.quantityUnit,
+      quantityGrams:currentFood.quantityGrams,
+      mealType,logDate:today,
+      calories:currentFood.calories, proteinGrams:currentFood.proteinGrams,
+      carbsGrams:currentFood.carbsGrams, fatGrams:currentFood.fatGrams,
+      fiberGrams:currentFood.fiberGrams||0,
+      waterContentMl:currentFood.waterContentMl||0,
+      goodCalories:currentFood.goodCalories||0, badCalories:currentFood.badCalories||0,
+      carbCalories:currentFood.carbCalories||0,
+      aiAnalysis:currentFood.aiAnalysis
+    });
+    let toastMsg = `✓ ${currentFood.foodName} added!`;
+    if (currentFood.waterContentMl && currentFood.waterContentMl > 5) {
+      toastMsg += ` 💧 +${Math.round(currentFood.waterContentMl)}ml water`;
+      // Refresh water display if on dashboard
+      setTimeout(() => loadWater(), 500);
+    }
+    showToast(toastMsg);
+    currentFood=null;
+    document.getElementById('food-search-result').classList.add('hidden');
+    document.getElementById('food-name-input').value='';
+    document.getElementById('food-qty-input').value='100';
+    document.getElementById('food-unit-select').value='grams';
+    loadFoodPage();
+  }catch(e){showToast('Failed: '+e.message,'error');}
+  finally{setLoading(btn,false);}
+}
+async function deleteLog(id){
+  try{await api('DELETE',`/food/log/${id}`); showToast('Removed'); loadFoodPage(); loadDashboard();}
+  catch(e){showToast('Delete failed','error');}
 }
 
-// Allow Enter key to trigger search
+// ── WORKOUT ──────────────────────────────────────────────────
+async function loadWorkoutPage(){
+  try{
+    const plan=await api('GET','/workout/active');
+    if(plan&&plan.weeklyPlan&&plan.weeklyPlan.length>0){
+      currentPlan=plan;
+      // Check if weight has changed significantly
+      if(plan.weightChanged) showWeightChangeBanner(plan);
+      showWorkoutPlan(plan);
+    } else {
+      showWorkoutForm();
+    }
+  }catch(e){showWorkoutForm();}
+}
+function showWorkoutForm(){
+  document.getElementById('workout-form-section').classList.remove('hidden');
+  document.getElementById('workout-plan-section').classList.add('hidden');
+}
+function showWorkoutPlan(plan){
+  document.getElementById('workout-form-section').classList.add('hidden');
+  document.getElementById('workout-plan-section').classList.remove('hidden');
+  renderWorkoutPlan(plan);
+}
+
+const selectedConditions=new Set();
+function toggleCondition(el){
+  const val=el.dataset.val;
+  if(val==='none'){selectedConditions.clear();document.querySelectorAll('.condition-chip').forEach(c=>c.classList.remove('active'));}
+  else{document.querySelector('[data-val="none"]').classList.remove('active');}
+  if(el.classList.contains('active')){el.classList.remove('active');selectedConditions.delete(val);}
+  else{el.classList.add('active');selectedConditions.add(val);}
+}
+
+async function generateWorkoutPlan(){
+  const btn=document.getElementById('generate-plan-btn');
+  const errEl=document.getElementById('workout-gen-error');
+  const conditions=[...selectedConditions].filter(c=>c!=='none');
+  const fitnessLevel=document.getElementById('fitness-level-sel').value;
+  const workoutDaysPerWeek=parseInt(document.getElementById('workout-days-sel').value);
+  const equipment=[document.getElementById('equipment-sel').value];
+  const additionalNotes=document.getElementById('workout-notes').value;
+  setLoading(btn,true); errEl.classList.add('hidden');
+  try{
+    const plan=await api('POST','/workout/generate',{healthConditions:conditions,fitnessLevel,workoutDaysPerWeek,equipment,additionalNotes});
+    currentPlan=plan; showWorkoutPlan(plan); showToast('✓ Workout plan generated!');
+  }catch(e){showError(errEl,e.message);}
+  finally{setLoading(btn,false);}
+}
+
+function renderWorkoutPlan(plan){
+  setEl('plan-name',plan.planName||'My Workout Plan');
+  setEl('plan-difficulty',plan.difficultyLevel||'');
+  setEl('plan-goal',fmtGoal(plan.goal));
+  setEl('plan-cals-burned',`~${plan.estimatedWeeklyCaloriesBurned||0} kcal/week`);
+
+  const advEl=document.getElementById('plan-advice');
+  if(advEl&&plan.generalAdvice){advEl.innerHTML=`<span class="advice-icon">💡</span><p>${plan.generalAdvice}</p>`;}
+
+  const safeEl=document.getElementById('plan-safety');
+  if(safeEl&&plan.safetyNotes&&plan.safetyNotes.trim()){
+    safeEl.classList.remove('hidden');
+    safeEl.innerHTML=`<span class="advice-icon">⚠️</span><p>${plan.safetyNotes}</p>`;
+  }
+
+  const today=new Date().toLocaleDateString('en',{weekday:'long'});
+  const isSundayToday = new Date().getDay() === 0;
+  const grid=document.getElementById('weekly-workout-grid'); if(!grid) return;
+  grid.innerHTML=(plan.weeklyPlan||[]).map(day=>{
+    const isToday=today.startsWith(day.day);
+    const isSunday = day.day === 'Sunday';
+    if(day.isRestDay) return `
+      <div class="workout-day-card rest ${isToday?'today':''} ${isSunday?'sunday-rest':''}">
+        <div class="day-header">
+          <div class="day-name">${day.day}${isToday?' <span class="today-chip">Today</span>':''}${isSunday?' <span class="sunday-badge">🙏 Sunday</span>':''}</div>
+          <div class="day-focus rest-badge">${isSunday?'🌅 Sunday Rest':'😴 Rest Day'}</div>
+        </div>
+        <p class="rest-msg">${isSunday?'Sunday is your sacred rest day. Relax, recover, recharge! 🙏':'Recovery is part of the plan. Stay hydrated!'}</p>
+      </div>`;
+    return `
+      <div class="workout-day-card ${isToday?'today':''}">
+        <div class="day-header">
+          <div class="day-name">${day.day}${isToday?' <span class="today-chip">Today</span>':''}</div>
+          <div class="day-focus">${day.focus||''}</div>
+        </div>
+        <div class="day-meta">
+          <span>⏱ ${day.estimatedDuration||0} min</span>
+          <span>🔥 ${day.estimatedCaloriesBurned||0} kcal</span>
+        </div>
+        <div class="exercises-list">
+          ${(day.exercises||[]).map(ex=>`
+            <div class="exercise-item">
+              <div class="ex-header">
+                <span class="ex-name">${ex.name}</span>
+                <span class="ex-cat">${ex.category||''}</span>
+              </div>
+              <div class="ex-meta">
+                ${ex.sets?`<span>📦 ${ex.sets} sets</span>`:''}
+                ${ex.reps?`<span>🔁 ${ex.reps} reps</span>`:''}
+                ${ex.duration?`<span>⏱ ${ex.duration}</span>`:''}
+                ${ex.rest?`<span>💤 ${ex.rest} rest</span>`:''}
+              </div>
+              ${ex.instructions?`<div class="ex-instructions">${ex.instructions}</div>`:''}
+              ${ex.modification?`<div class="ex-modification">💡 Easier: ${ex.modification}</div>`:''}
+            </div>`).join('')}
+        </div>
+      </div>`;
+  }).join('');
+}
+function fmtGoal(g){return{WEIGHT_LOSS:'🔥 Weight Loss',MUSCLE_GAIN:'💪 Muscle Gain',MAINTAIN:'⚖️ Maintain',RECOMPOSITION:'🔄 Recomp'}[g]||g||'';}
+
+// ── WEEKLY ───────────────────────────────────────────────────
+async function loadWeekly(){
+  try{const d=await api('GET','/food/weekly'); renderWeekly(d);}
+  catch(e){showToast('Could not load weekly','error');}
+}
+function renderWeekly(days){
+  if(!days||!days.length) return;
+  const today=new Date().toISOString().split('T')[0];
+  const active=days.filter(d=>d.consumedCalories>0);
+  const avgCal=active.length?Math.round(active.reduce((a,d)=>a+d.consumedCalories,0)/active.length):0;
+  const avgPro=active.length?Math.round(active.reduce((a,d)=>a+(d.consumedProtein||0),0)/active.length):0;
+  setEl('ws-avg-cal',avgCal||'—'); setEl('ws-avg-pro',avgPro?`${avgPro}g`:'—');
+  setEl('ws-days-logged',`${active.length}/7`);
+  setEl('ws-goal-hit',`${Math.round((days.filter(d=>d.calorieProgress>=70).length/7)*100)}%`);
+
+  const canvas=document.getElementById('weekly-chart');
+  if(canvas){
+    const W=canvas.parentElement.clientWidth-48||600,H=200;
+    canvas.width=W;canvas.height=H;
+    const ctx=canvas.getContext('2d');
+    ctx.clearRect(0,0,W,H);
+    const max=Math.max(...days.map(d=>d.consumedCalories||0),1);
+    const bW=Math.floor((W/days.length)*.55),gap=W/days.length;
+    days.forEach((d,i)=>{
+      const x=i*gap+(gap-bW)/2,cH=((d.consumedCalories||0)/max)*(H-50),y=H-cH-30;
+      const isT=d.date===today;
+      const g=ctx.createLinearGradient(0,y,0,H-30);
+      isT?(g.addColorStop(0,'#b9ff4b'),g.addColorStop(1,'rgba(185,255,75,.3)')):(g.addColorStop(0,'#1e2a1e'),g.addColorStop(1,'rgba(30,42,30,.2)'));
+      ctx.fillStyle=g;
+      if(cH>0){ctx.beginPath();const r=5;ctx.moveTo(x+r,y);ctx.arcTo(x+bW,y,x+bW,y+r,r);ctx.lineTo(x+bW,H-30);ctx.lineTo(x,H-30);ctx.lineTo(x,y+r);ctx.arcTo(x,y,x+r,y,r);ctx.closePath();ctx.fill();}
+      ctx.fillStyle=isT?'#b9ff4b':'#555d6b';ctx.font=`${isT?'600':'400'} 11px DM Sans,sans-serif`;ctx.textAlign='center';
+      ctx.fillText(new Date(d.date).toLocaleDateString('en',{weekday:'short'}),x+bW/2,H-12);
+      if(d.consumedCalories>0){ctx.fillStyle=isT?'#b9ff4b':'#3a4248';ctx.font='600 10px DM Mono,monospace';ctx.fillText(Math.round(d.consumedCalories),x+bW/2,Math.max(y-8,14));}
+    });
+  }
+  const list=document.getElementById('weekly-list');
+  list.innerHTML=[...days].reverse().map(d=>{
+    const isT=d.date===today;
+    const pct=Math.min(d.calorieProgress||0,100);
+    return `<div class="weekly-day-card ${isT?'today':''}">
+      <div class="weekly-day-label">${isT?'⚡ Today':new Date(d.date).toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short'})}</div>
+      <div class="weekly-day-bar-wrap"><div class="weekly-day-bar" style="width:${pct}%"></div></div>
+      <div class="weekly-day-cal">${Math.round(d.consumedCalories||0)} / ${Math.round(d.targetCalories||0)} kcal</div>
+    </div>`; }).join('');
+}
+
+// ── PROFILE ──────────────────────────────────────────────────
+function populateProfilePage(){
+  if(!userData) return;
+  const bmi=userData.bmi||0;
+  setEl('profile-bmi',bmi.toFixed(1)); setEl('profile-bmi-cat',userData.bmiCategory||'');
+  setStyle('bmi-indicator','left',`calc(${Math.min(Math.max((bmi-15)/25,0),1)*92}% - 6px)`);
+  setEl('pt-cal',`${Math.round(userData.dailyCalorieTarget||0)} kcal`);
+  setEl('pt-pro',`${Math.round(userData.dailyProteinTarget||0)}g`);
+  setEl('pt-car',`${Math.round(userData.dailyCarbTarget||0)}g`);
+  setEl('pt-fat',`${Math.round(userData.dailyFatTarget||0)}g`);
+  setEl('ps-name',userData.name||'—'); setEl('ps-weight',`${userData.weightKg||'—'} kg`);
+  setEl('ps-height',`${userData.heightCm||'—'} cm`); setEl('ps-goal',fmtGoal(userData.goal));
+  setEl('ps-activity',userData.activityLevel||'—');
+  const gs=document.getElementById('update-goal-sel'),as=document.getElementById('update-activity-sel');
+  if(gs) gs.value=userData.goal||'MAINTAIN'; if(as) as.value=userData.activityLevel||'MODERATE';
+  const wi=document.getElementById('update-weight-inp'); if(wi) wi.value=userData.weightKg||'';
+}
+function updateSidebarUser(){
+  const el=document.getElementById('sidebar-user-badge');
+  if(el&&userData) el.innerHTML=`<strong>${userData.name||'User'}</strong><br>${fmtGoal(userData.goal)}`;
+}
+async function updateGoal(){
+  const goal=document.getElementById('update-goal-sel').value;
+  const activityLevel=document.getElementById('update-activity-sel').value;
+  const wv=document.getElementById('update-weight-inp').value;
+  const weightKg=wv?parseFloat(wv):undefined;
+  const btn=document.querySelector('.update-goal-card .btn-primary');
+  const msgEl=document.getElementById('update-goal-msg');
+  setLoading(btn,true); msgEl.classList.add('hidden');
+  try{
+    userData=await api('PUT','/user/goal',{goal,activityLevel,...(weightKg?{weightKg}:{})});
+    msgEl.textContent='✓ Updated!'; msgEl.classList.remove('hidden');
+    populateProfilePage(); updateSidebarUser(); showToast('Goals updated!');
+    setTimeout(()=>msgEl.classList.add('hidden'),3000);
+  }catch(e){showToast('Failed: '+e.message,'error');}
+  finally{setLoading(btn,false);}
+}
+
+// ── UTILS ────────────────────────────────────────────────────
+function setEl(id,v){const e=document.getElementById(id);if(e)e.textContent=v;}
+function setStyle(id,p,v){const e=document.getElementById(id);if(e)e.style[p]=v;}
+function showError(el,msg){if(el){el.textContent=msg;el.classList.remove('hidden');}}
+function setLoading(btn,on){
+  if(!btn) return; btn.disabled=on;
+  const t=btn.querySelector('.btn-text'),l=btn.querySelector('.btn-loader');
+  if(t) t.style.opacity=on?.4:1; if(l) l.classList.toggle('hidden',!on);
+}
+let toastTimer;
+function showToast(msg,type='success'){
+  const t=document.getElementById('toast'); t.textContent=msg;
+  t.style.borderLeftColor=type==='error'?'var(--danger)':'var(--accent)';
+  t.classList.remove('hidden'); clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>t.classList.add('hidden'),3500);
+}
+
+// ── WATER TRACKER ────────────────────────────────────────────
+let waterState = { targetMl: 2000, consumedMl: 0, glassCount: 0, targetGlasses: 8, percentage: 0 };
+
+async function loadWater() {
+  try {
+    const d = await api('GET', '/water/status');
+    waterState = d;
+    renderWater(d);
+  } catch (e) { console.error('Water load failed:', e); }
+}
+
+async function addWater(ml) {
+  try {
+    const d = await api('POST', '/water/add', { ml });
+    waterState = d;
+    renderWater(d, true);
+    if (ml > 0) showToast('💧 Water logged!');
+  } catch (e) { showToast('Failed to log water', 'error'); }
+}
+
+async function addCustomWater() {
+  const input = document.getElementById('water-custom-ml');
+  const ml = parseFloat(input.value);
+  if (!ml || ml <= 0 || ml > 2000) { showToast('Enter valid amount (1-2000ml)', 'error'); return; }
+  input.value = '';
+  try {
+    const d = await api('POST', '/water/add', { ml });
+    waterState = d;
+    renderWater(d, true);
+    showToast(`💧 ${Math.round(ml)}ml added!`);
+  } catch (e) { showToast('Failed to log water', 'error'); }
+}
+
+// Enter key on custom water input
 document.addEventListener('DOMContentLoaded', () => {
   setTimeout(() => {
-    const inp = document.getElementById('food-name-input');
-    if (inp) inp.addEventListener('keydown', e => { if (e.key === 'Enter') searchFood(); });
+    const wi = document.getElementById('water-custom-ml');
+    if (wi) wi.addEventListener('keydown', e => { if (e.key === 'Enter') addCustomWater(); });
   }, 500);
 });
 
-function renderFoodResult(d) {
-  document.getElementById('result-name').textContent = d.foodName;
-  document.getElementById('result-qty').textContent = `${d.quantityGrams}g`;
-  document.getElementById('res-cal').textContent = Math.round(d.calories);
-  document.getElementById('res-pro').textContent = `${d.proteinGrams}g`;
-  document.getElementById('res-car').textContent = `${d.carbsGrams}g`;
-  document.getElementById('res-fat').textContent = `${d.fatGrams}g`;
-  document.getElementById('res-fib').textContent = `${d.fiberGrams || 0}g`;
-  document.getElementById('result-ai').textContent = d.aiAnalysis || '';
-  document.getElementById('food-search-result').classList.remove('hidden');
-}
+function renderWater(d, animate = false) {
+  const pct = Math.min(d.percentage || 0, 100);
+  const consumed = Math.round(d.consumedMl || 0);
+  const target = Math.round(d.targetMl || 2000);
+  const glasses = d.glassCount || 0;
+  const tGlasses = d.targetGlasses || 8;
 
-async function addToLog() {
-  if (!currentFood) return;
-  const mealType = document.getElementById('meal-type-select').value;
-  const today = new Date().toISOString().split('T')[0];
+  setEl('water-consumed-display', `${consumed} ml`);
+  setEl('water-target-text', `of ${target} ml target`);
+  setEl('water-pct-text', `${pct}%`);
 
-  const btn = document.querySelector('.add-to-log-row .btn-primary');
-  setLoading(btn, true);
-
-  try {
-    await api('POST', '/food/log', {
-      foodName: currentFood.foodName,
-      quantityGrams: currentFood.quantityGrams,
-      mealType,
-      logDate: today,
-      calories: currentFood.calories,
-      proteinGrams: currentFood.proteinGrams,
-      carbsGrams: currentFood.carbsGrams,
-      fatGrams: currentFood.fatGrams,
-      fiberGrams: currentFood.fiberGrams || 0,
-      aiAnalysis: currentFood.aiAnalysis
-    });
-
-    showToast(`${currentFood.foodName} added to ${mealType.toLowerCase()}!`);
-    currentFood = null;
-    document.getElementById('food-search-result').classList.add('hidden');
-    document.getElementById('food-name-input').value = '';
-    document.getElementById('food-qty-input').value = '100';
-
-    // Refresh food log list
-    loadFoodPage();
-  } catch (e) {
-    showToast('Failed to add: ' + e.message, 'error');
-  } finally {
-    setLoading(btn, false);
+  // Animate water fill
+  const fill = document.getElementById('water-fill-bar');
+  if (fill) {
+    fill.style.transition = animate ? 'height 0.8s cubic-bezier(0.4,0,0.2,1)' : 'none';
+    fill.style.height = `${pct}%`;
+    // Color based on percentage
+    if (pct >= 100) fill.style.background = 'linear-gradient(180deg, #00d084, #00a86b)';
+    else if (pct >= 70) fill.style.background = 'linear-gradient(180deg, #4bf5ff, #00b8d4)';
+    else if (pct >= 40) fill.style.background = 'linear-gradient(180deg, #4bf5ff, #0088a3)';
+    else fill.style.background = 'linear-gradient(180deg, #4bf5ff99, #4bf5ff44)';
   }
-}
 
-async function deleteLog(logId) {
-  try {
-    await api('DELETE', `/food/log/${logId}`);
-    showToast('Removed from log');
-    loadFoodPage();
-    // Also refresh dashboard if it's visible
-    if (document.getElementById('page-dashboard').classList.contains('active')) {
-      loadDashboard();
+  // Render glass icons
+  const row = document.getElementById('water-glasses-row');
+  if (row) {
+    let html = '';
+    for (let i = 0; i < tGlasses; i++) {
+      const filled = i < glasses;
+      html += `<div class="water-glass ${filled ? 'filled' : ''}" onclick="addWater(${filled ? -250 : 250})" title="${filled ? 'Remove glass' : 'Add glass'}">
+        <div class="glass-water ${filled ? 'filled' : ''}"></div>
+      </div>`;
     }
-  } catch (e) {
-    showToast('Delete failed: ' + e.message, 'error');
+    row.innerHTML = html;
+  }
+
+  // From food indicator
+  const fromFood = Math.round(d.fromFoodMl || 0);
+  const fromFoodEl = document.getElementById('water-from-food');
+  const fromFoodMlEl = document.getElementById('water-from-food-ml');
+  if (fromFoodEl && fromFood > 0) {
+    fromFoodEl.style.display = 'flex';
+    if (fromFoodMlEl) fromFoodMlEl.textContent = fromFood;
+  }
+
+  // Tip text
+  const tipEl = document.getElementById('water-tip');
+  if (tipEl) {
+    const rem = Math.max(0, target - consumed);
+    if (pct >= 100) tipEl.textContent = '🌟 Hydration goal achieved! Amazing!';
+    else if (pct >= 70) tipEl.textContent = `💪 Almost there! ${Math.round(rem)}ml more to go`;
+    else if (pct >= 40) tipEl.textContent = `⏰ Keep drinking! ${Math.round(rem)}ml remaining`;
+    else tipEl.textContent = `🚰 Start hydrating! ${tGlasses - glasses} glasses remaining`;
   }
 }
 
-// ══════════════════════════════════════════
-// WEEKLY
-// ══════════════════════════════════════════
-async function loadWeekly() {
-  try {
-    const data = await api('GET', '/food/weekly');
-    renderWeekly(data);
-  } catch (e) {
-    showToast('Could not load weekly data', 'error');
+// ── WORKOUT WEIGHT CHANGE ─────────────────────────────────────
+function showWeightChangeBanner(plan) {
+  const banner = document.getElementById('weight-change-banner');
+  if (!banner) return;
+  banner.classList.remove('hidden');
+
+  const delta = plan.weightChangeDelta || 0;
+  const absDelta = Math.abs(delta).toFixed(1);
+  const isPositive = plan.weightChangePositive;
+  const goal = plan.goal || '';
+
+  const icon = document.getElementById('wcb-icon');
+  const title = document.getElementById('wcb-title');
+  const sub = document.getElementById('wcb-sub');
+
+  if (isPositive) {
+    banner.classList.add('positive'); banner.classList.remove('negative');
+    if (icon) icon.textContent = '🎯';
+    if (title) title.textContent = `Great Progress! ${absDelta}kg ${delta < 0 ? 'Lost' : 'Gained'}`;
+    if (sub) sub.textContent = `You're closer to your ${fmtGoal(goal)} goal! Update your plan for better results.`;
+  } else {
+    banner.classList.add('negative'); banner.classList.remove('positive');
+    if (icon) icon.textContent = '⚠️';
+    if (title) title.textContent = `Weight Changed by ${absDelta}kg`;
+    if (sub) sub.textContent = `Update your workout plan to stay on track with your ${fmtGoal(goal)} goal.`;
   }
 }
 
-function renderWeekly(days) {
-  const maxCal = Math.max(...days.map(d => d.consumedCalories || 0), 1);
-
-  // Simple bar chart with canvas
-  const canvas = document.getElementById('weekly-chart');
-  if (canvas) {
-    const ctx = canvas.getContext('2d');
-    const W = canvas.parentElement.clientWidth - 48;
-    const H = 240;
-    canvas.width = W; canvas.height = H;
-
-    ctx.clearRect(0, 0, W, H);
-
-    const barW = Math.floor(W / days.length) - 16;
-    days.forEach((d, i) => {
-      const x = i * (W / days.length) + 8;
-      const calH = ((d.consumedCalories || 0) / maxCal) * (H - 60);
-      const y = H - calH - 30;
-
-      // Bar
-      ctx.fillStyle = i === days.length - 1 ? '#c8ff00' : '#1e2229';
-      ctx.beginPath();
-      ctx.roundRect(x, y, barW, calH, 6);
-      ctx.fill();
-
-      // Label
-      ctx.fillStyle = '#8a909c';
-      ctx.font = '500 11px DM Sans, sans-serif';
-      ctx.textAlign = 'center';
-      const label = new Date(d.date).toLocaleDateString('en', { weekday: 'short' });
-      ctx.fillText(label, x + barW / 2, H - 10);
-
-      // Value
-      if (d.consumedCalories > 0) {
-        ctx.fillStyle = i === days.length - 1 ? '#c8ff00' : '#555d6b';
-        ctx.font = '600 10px DM Mono, monospace';
-        ctx.fillText(Math.round(d.consumedCalories), x + barW / 2, y - 6);
-      }
-    });
-  }
-
-  // List below
-  const list = document.getElementById('weekly-list');
-  list.innerHTML = days.reverse().map(d => {
-    const pct = (d.calorieProgress || 0);
-    const barW = Math.min(pct, 100);
-    const dayLabel = new Date(d.date).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
-    return `
-      <div class="weekly-day-card">
-        <div class="weekly-day-label">${dayLabel}</div>
-        <div class="weekly-day-bar-wrap"><div class="weekly-day-bar" style="width:${barW}%"></div></div>
-        <div class="weekly-day-cal">${Math.round(d.consumedCalories)} / ${Math.round(d.targetCalories)} kcal</div>
-      </div>
-    `;
-  }).join('');
+function dismissWeightBanner() {
+  const b = document.getElementById('weight-change-banner');
+  if (b) b.classList.add('hidden');
 }
 
-// ══════════════════════════════════════════
-// PROFILE
-// ══════════════════════════════════════════
-function populateProfilePage() {
-  if (!userData) return;
-
-  // BMI
-  const bmi = userData.bmi || 0;
-  document.getElementById('profile-bmi').textContent = bmi.toFixed(1);
-  document.getElementById('profile-bmi-cat').textContent = userData.bmiCategory || bmiCategory(bmi);
-
-  // BMI indicator position (scale: 15 to 40)
-  const pct = Math.min(Math.max((bmi - 15) / 25, 0), 1) * 100;
-  document.getElementById('bmi-indicator').style.left = `calc(${pct}% - 5px)`;
-
-  // Targets
-  document.getElementById('pt-cal').textContent = `${Math.round(userData.dailyCalorieTarget)} kcal`;
-  document.getElementById('pt-pro').textContent = `${Math.round(userData.dailyProteinTarget)}g`;
-  document.getElementById('pt-car').textContent = `${Math.round(userData.dailyCarbTarget)}g`;
-  document.getElementById('pt-fat').textContent = `${Math.round(userData.dailyFatTarget)}g`;
-
-  // Stats
-  document.getElementById('ps-name').textContent = userData.name || '—';
-  document.getElementById('ps-weight').textContent = `${userData.weightKg || '—'} kg`;
-  document.getElementById('ps-height').textContent = `${userData.heightCm || '—'} cm`;
-  document.getElementById('ps-activity').textContent = formatActivity(userData.activityLevel);
-
-  // Pre-fill update form
-  document.getElementById('update-goal-sel').value = userData.goal || 'MAINTAIN';
-  document.getElementById('update-activity-sel').value = userData.activityLevel || 'MODERATE';
-  document.getElementById('update-weight-inp').value = userData.weightKg || '';
-}
-
-function bmiCategory(bmi) {
-  if (bmi < 18.5) return 'Underweight';
-  if (bmi < 25) return 'Normal Weight';
-  if (bmi < 30) return 'Overweight';
-  return 'Obese';
-}
-
-function formatActivity(level) {
-  const map = {
-    SEDENTARY: 'Sedentary', LIGHT: 'Light', MODERATE: 'Moderate',
-    ACTIVE: 'Active', VERY_ACTIVE: 'Very Active'
-  };
-  return map[level] || level || '—';
-}
-
-function updateSidebarUser() {
-  const el = document.getElementById('sidebar-user-badge');
-  if (el && userData) {
-    el.textContent = `${userData.name || 'User'} · ${userData.goal?.replace('_', ' ') || ''}`;
-  }
-}
-
-async function updateGoal() {
-  const goal = document.getElementById('update-goal-sel').value;
-  const activityLevel = document.getElementById('update-activity-sel').value;
-  const weightKg = parseFloat(document.getElementById('update-weight-inp').value) || undefined;
-  const msgEl = document.getElementById('update-goal-msg');
-  const btn = document.querySelector('.update-goal-card .btn-primary');
-
+async function autoRegeneratePlan() {
+  const btn = document.querySelector('.btn-regenerate-now');
   setLoading(btn, true);
-  msgEl.classList.add('hidden');
-
   try {
-    userData = await api('PUT', '/user/goal', { goal, activityLevel, ...(weightKg ? { weightKg } : {}) });
-    msgEl.textContent = '✓ Targets updated successfully!';
-    msgEl.classList.remove('hidden');
-    populateProfilePage();
-    updateSidebarUser();
-    showToast('Goals updated!');
-    setTimeout(() => msgEl.classList.add('hidden'), 3000);
+    const plan = await api('POST', '/workout/regenerate');
+    currentPlan = plan;
+    dismissWeightBanner();
+    showWorkoutPlan(plan);
+    showToast('✓ Workout plan updated for your new weight!');
   } catch (e) {
-    showToast('Update failed: ' + e.message, 'error');
-  } finally {
-    setLoading(btn, false);
-  }
+    showToast('Failed: ' + e.message, 'error');
+  } finally { setLoading(btn, false); }
 }
 
-// ══════════════════════════════════════════
-// UTILITIES
-// ══════════════════════════════════════════
-function showError(el, msg) {
-  el.textContent = msg;
-  el.classList.remove('hidden');
-}
-
-function setLoading(btn, loading) {
-  if (!btn) return;
-  const text = btn.querySelector('.btn-text');
-  const loader = btn.querySelector('.btn-loader');
-  btn.disabled = loading;
-  if (text) text.style.opacity = loading ? '0.4' : '1';
-  if (loader) loader.classList.toggle('hidden', !loading);
-}
-
-let toastTimer;
-function showToast(msg, type = 'success') {
-  const toast = document.getElementById('toast');
-  toast.textContent = msg;
-  toast.style.borderLeftColor = type === 'error' ? 'var(--danger)' : 'var(--accent)';
-  toast.classList.remove('hidden');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toast.classList.add('hidden'), 3500);
-}
-
-// Polyfill for roundRect (older browsers)
-if (!CanvasRenderingContext2D.prototype.roundRect) {
-  CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
-    if (w < 2 * r) r = w / 2;
-    if (h < 2 * r) r = h / 2;
-    this.beginPath();
-    this.moveTo(x + r, y);
-    this.arcTo(x + w, y, x + w, y + h, r);
-    this.arcTo(x + w, y + h, x, y + h, r);
-    this.arcTo(x, y + h, x, y, r);
-    this.arcTo(x, y, x + w, y, r);
-    this.closePath();
-    return this;
-  };
-}
+// loadDashboard also triggers water load
+// loadWorkoutPage also handles weight change detection
+// (both functions redefined above with this logic already integrated)
